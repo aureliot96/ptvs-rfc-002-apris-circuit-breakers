@@ -134,3 +134,175 @@ All APRIS triggers require valid PTCE QES signature hash
 MAS Project Guardian
 Trust architecture & risk management
 Deterministic containment removes operator discretion
+
+
+🔬 Ontology & Semantic Interoperability
+The APRIS ontology (JSON-LD) is defined in /ontology/apris-schema.json. It extends the base PTVS ontology with:
+ptvs:parametricTriggerEvent (PTE classification)
+ptvs:circuitBreakerStatus (Active / ForensicFreezeTriggered / YieldGated / CapexEscrowReleased)
+ptvs:atomicReceiverInvocation (Bankruptcy-remote step-in events)
+ptvs:pipcPolicyReference (Link to parametric insurance policy)
+This ontology is designed for integration with regulatory knowledge graphs (BCE, BIS, MAS) and Linked Open Vocabularies (LOV).
+🔒 Security & Audit Considerations
+Implementations of this interface must ensure:
+PTCE Quorum Validation: Critical triggers (PTE-1, PTE-3) require multi-signature validation from registered PTCEs.
+Reentrancy Protection: All functions must use the nonReentrant modifier (already included in the reference implementation).
+Signature Verification: The _ptceSignature must be verified against the PTCE's eIDAS 2.0 QES certificate fingerprint via ECDSA.
+Rate Limiting: executeCapexRelease must enforce a 72-hour cooldown between releases for the same asset.
+Emergency Pause: A governance-controlled emergencyPause() function must be available for system-wide halt.
+📚 References
+Tamarit Blay, A. (2026). Corpus Legislativum PTVS v1.0. PropTrust Association. DOI: 10.5281/zenodo.21719175
+Tamarit Blay, A. (2026). PTVS-RFC-001: Physical Oracle Interface. Forensics Oracle Initiative.
+European Parliament. (2023). Regulation (EU) 2023/1114 (MiCA).
+Basel Committee. (2022). Prudential treatment of cryptoasset exposures (SCO60).
+Abu Dhabi Global Market. (2022). Digital Asset Regulations and Rules.
+Monetary Authority of Singapore. (2023). Project Guardian Policy Toolkit.
+📄 License
+This specification is released under CC BY-ND 4.0. Full reproduction with attribution is permitted; no derivative works under the same title.
+VERITAS IN RE · CERTITUDO IN CODE · HONOR IN AETERNUM
+
+
+
+---
+
+### 💻 ARCHIVO 2: `contracts/IAPRISController.sol`
+
+```solidity
+// SPDX-License-Identifier: CC-BY-ND-4.0
+pragma solidity ^0.8.20;
+
+import "./IPTVSClaimInjector.sol";
+
+/**
+ * @title IAPRISController
+ * @author Forensics Oracle Initiative (PFOI)
+ * @notice Interface for the Actuarial Parametric Resolution & Insurance System (APRIS).
+ * @dev Executes deterministic financial and operational containment upon verified physical pathology.
+ *      Extends IPTVSClaimInjector (RFC-001) to handle Day-2 resilience.
+ *      Complies with MiCA Art. 58, BCBS SCO60, and CL-PTVS Liber VI.
+ */
+interface IAPRISController is IPTVSClaimInjector {
+
+    // ============ EVENTS ============
+
+    /// @notice Emitted when yield distribution is gated due to PRRB downgrade.
+    /// @param assetId The unique identifier of the tokenized RWA.
+    /// @param oldYieldBps The previous yield in basis points.
+    /// @param newYieldBps The new, restricted yield in basis points.
+    /// @param escrowTarget The address of the maintenance escrow receiving redirected funds.
+    event YieldRatingAdjusted(
+        bytes32 indexed assetId,
+        uint256 oldYieldBps,
+        uint256 newYieldBps,
+        address indexed escrowTarget
+    );
+
+    /// @notice Emitted when escrowed funds are released for emergency repairs.
+    /// @param assetId The unique identifier of the tokenized RWA.
+    /// @param releaseAmount The gross amount released from escrow.
+    /// @param infrastructureFee The fee deducted for the PTVS infrastructure.
+    /// @param netBeneficiaryAmount The net amount transferred to the repair beneficiary.
+    /// @param ptceAddress The PTCE who certified the repair.
+    event CapexEscrowReleased(
+        bytes32 indexed assetId,
+        uint256 releaseAmount,
+        uint256 infrastructureFee,
+        uint256 netBeneficiaryAmount,
+        address indexed ptceAddress
+    );
+
+    /// @notice Emitted when the Atomic Receiver Protocol is invoked.
+    /// @param assetId The unique identifier of the tokenized RWA.
+    /// @param receiverAddress The designated bankruptcy-remote receiver.
+    /// @param triggerReason The PTE code that triggered the invocation.
+    event AtomicReceiverInvoked(
+        bytes32 indexed assetId,
+        address indexed receiverAddress,
+        string triggerReason
+    );
+
+    /// @notice Emitted when a PIPC insurance payout is triggered.
+    /// @param assetId The unique identifier of the tokenized RWA.
+    /// @param payoutAmount The amount paid out by the parametric insurance.
+    /// @param beneficiary The recipient of the payout.
+    /// @param pteCode The Parametric Trigger Event that activated the policy.
+    event PIPCPayoutExecuted(
+        bytes32 indexed assetId,
+        uint256 payoutAmount,
+        address indexed beneficiary,
+        string pteCode
+    );
+
+    // ============ FUNCTIONS ============
+
+    /**
+     * @notice Gates yield distribution and redirects funds to a maintenance escrow upon PRRB downgrade.
+     * @dev Triggered by PTE-2 (Rating Downgrade to Speculative).
+     * @param _assetId The ID of the RWA.
+     * @param _newYieldBps The new, restricted yield in basis points.
+     * @param _escrowTarget The address of the authorized Capex Escrow contract.
+     */
+    function executeYieldGating(
+        bytes32 _assetId,
+        uint256 _newYieldBps,
+        address _escrowTarget
+    ) external;
+
+    /**
+     * @notice Automatically releases escrowed funds for urgent repairs upon PTCE certification.
+     * @dev Deducts the PTVS infrastructure fee atomically before routing to beneficiary.
+     *      Enforces 72-hour cooldown between releases for the same asset.
+     * @param _assetId The ID of the RWA.
+     * @param _releaseAmount The gross amount to release.
+     * @param _ptceSignature Cryptographic proof of the repair certification (eIDAS 2.0 QES).
+     */
+    function executeCapexRelease(
+        bytes32 _assetId,
+        uint256 _releaseAmount,
+        bytes calldata _ptceSignature
+    ) external;
+
+    /**
+     * @notice Triggers the Atomic Receiver Protocol in case of severe physical loss or fraud.
+     * @dev Invoked by PTE-3 (Registry Divergence) or PTE-5 (Operator Control Loss).
+     * @param _assetId The ID of the RWA.
+     * @param _receiverAddress The designated bankruptcy-remote receiver address.
+     */
+    function invokeAtomicReceiver(
+        bytes32 _assetId,
+        address _receiverAddress
+    ) external;
+
+    /**
+     * @notice Executes a parametric insurance payout upon verified PTE.
+     * @dev Integrates with PIPC (Physical Integrity Parametric Cover) smart contract.
+     * @param _assetId The ID of the RWA.
+     * @param _payoutAmount The amount to be paid out.
+     * @param _beneficiary The recipient of the payout.
+     * @param _pteCode The Parametric Trigger Event code.
+     */
+    function executePIPCPayout(
+        bytes32 _assetId,
+        uint256 _payoutAmount,
+        address _beneficiary,
+        string calldata _pteCode
+    ) external;
+
+    /**
+     * @notice Returns the current circuit breaker status of an asset.
+     * @param _assetId The ID of the RWA.
+     * @return status The current status (Active, ForensicFreezeTriggered, YieldGated, CapexEscrowReleased).
+     */
+    function getCircuitBreakerStatus(
+        bytes32 _assetId
+    ) external view returns (string memory status);
+
+    /**
+     * @notice Returns the timestamp of the last Capex Escrow release for an asset.
+     * @param _assetId The ID of the RWA.
+     * @return timestamp The Unix timestamp of the last release.
+     */
+    function getLastCapexReleaseTimestamp(
+        bytes32 _assetId
+    ) external view returns (uint256 timestamp);
+}
