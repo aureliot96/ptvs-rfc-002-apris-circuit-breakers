@@ -168,7 +168,7 @@ VERITAS IN RE · CERTITUDO IN CODE · HONOR IN AETERNUM
 ### 💻 ARCHIVO 2: `contracts/IAPRISController.sol`
 
 ```solidity
-// SPDX-License-Identifier: CC-BY-ND-4.0
+// SPDX-License-Identifier: BSL-1.1
 pragma solidity ^0.8.20;
 
 import "./IPTVSClaimInjector.sol";
